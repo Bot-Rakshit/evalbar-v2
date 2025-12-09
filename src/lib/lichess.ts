@@ -65,7 +65,8 @@ export async function fetchTournament(tournamentId: string): Promise<Tournament 
 }
 
 export async function fetchPGN(roundId: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch(`https://lichess.org/broadcast/-/-/${roundId}.pgn`, {
+  // Use the API streaming endpoint which has CORS support
+  const res = await fetch(`https://lichess.org/api/broadcast/round/${roundId}.pgn`, {
     signal,
     cache: 'no-store'
   })
