@@ -57,9 +57,10 @@ export function GameSelector({ onBack }: GameSelectorProps) {
       alert('Please add at least one game to the queue first!')
       return
     }
-    const shareData = generateShareUrl()
+    // Use short URL format
+    const shareData = generateShareUrl(true)
     if (shareData) {
-      const url = `${window.location.origin}/broadcast/${shareData}`
+      const url = `${window.location.origin}/b/${shareData}`
       navigator.clipboard.writeText(url)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)

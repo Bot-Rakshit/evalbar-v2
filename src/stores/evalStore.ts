@@ -74,7 +74,7 @@ interface EvalStore {
   startPolling: () => void
   stopPolling: () => void
   loadFromUrl: (data: string) => Promise<void>
-  generateShareUrl: () => string
+  generateShareUrl: (short?: boolean) => string
 }
 
 export const useEvalStore = create<EvalStore>()(
@@ -234,17 +234,73 @@ export const useEvalStore = create<EvalStore>()(
 
       loadFromUrl: async (data) => {
         try {
-          const decoded = JSON.parse(atob(data))
-          const { tournamentId, roundId, gameIDs, customStyles: styles, backgroundMode: bgMode } = decoded
-
-          if (!tournamentId || !roundId) {
-            throw new Error('Invalid URL data')
+          // Restore base64 padding and URL-safe chars
+          let decoded: string
+          let urlData = data.replace(/-/g, '+').replace(/_/g, '/')
+          while (urlData.length % 4) urlData += '='
+          
+          try {
+            decoded = atob(urlData)
+          } catch {
+            decoded = atob(data)
           }
 
-          const tournament = await fetchTournament(tournamentId)
-          if (tournament) {
+          // Check if it's short format (contains | separator) or long format (JSON)
+          if (decoded.includes('|') && !decoded.startsWith('{')) {
+            // Short format: roundId|games|bgMode
+            const [roundId, gamesStr, bgChar] = decoded.split('|')
+            const bgMode = bgChar === 'c' ? 'chroma' : bgChar === 't' ? 'transparent' : 'dark'
+            
             set({
-              currentTournament: tournament,
+              currentTournament: { tour: { id: roundId, name: 'Broadcast', slug: roundId }, rounds: [] },
+              currentRoundId: roundId,
+              customStyles: defaultStyles,
+              isBroadcastMode: true,
+              backgroundMode: bgMode as 'chroma' | 'transparent' | 'dark',
+              games: [],
+              pgnData: '',
+              availableGames: [],
+            })
+
+            get().startPolling()
+
+            // Parse games from short format and match with actual player names from PGN
+            if (gamesStr) {
+              const gameHints = gamesStr.split(',').map(g => {
+                const [w, b] = g.split('~')
+                return { white: w, black: b }
+              })
+              
+              // Wait for PGN to load, then match games
+              setTimeout(() => {
+                const { availableGames } = get()
+                gameHints.forEach(hint => {
+                  const match = availableGames.find(g => {
+                    const lower = g.toLowerCase()
+                    return lower.includes(hint.white.toLowerCase()) && lower.includes(hint.black.toLowerCase())
+                  })
+                  if (match) {
+                    const [white, black] = match.split(' - ')
+                    get().addGame(white, black)
+                  }
+                })
+              }, 3000)
+            }
+          } else {
+            // Long format (JSON)
+            const parsed = JSON.parse(decoded)
+            const { tournamentId, roundId, gameIDs, customStyles: styles, backgroundMode: bgMode } = parsed
+
+            if (!roundId) {
+              throw new Error('Invalid URL data')
+            }
+
+            const tournament = tournamentId 
+              ? await fetchTournament(tournamentId)
+              : { tour: { id: roundId, name: 'Broadcast', slug: roundId }, rounds: [] }
+              
+            set({
+              currentTournament: tournament || { tour: { id: roundId, name: 'Broadcast', slug: roundId }, rounds: [] },
               currentRoundId: roundId,
               customStyles: styles || defaultStyles,
               isBroadcastMode: true,
@@ -273,10 +329,25 @@ export const useEvalStore = create<EvalStore>()(
         }
       },
 
-      generateShareUrl: () => {
+      generateShareUrl: (short = true) => {
         const { currentTournament, currentRoundId, games, customStyles, backgroundMode } = get()
         if (!currentTournament || !currentRoundId) return ''
 
+        if (short) {
+          // Short format: t=tournamentId&r=roundId&g=player1-player2,player3-player4&b=c
+          const bgChar = backgroundMode === 'chroma' ? 'c' : backgroundMode === 'transparent' ? 't' : 'd'
+          const gameStr = games.map(g => {
+            // Use last names only for shorter URLs
+            const w = g.whitePlayer.split(/[,\s]+/).pop() || g.whitePlayer
+            const b = g.blackPlayer.split(/[,\s]+/).pop() || g.blackPlayer
+            return `${w}~${b}`
+          }).join(',')
+          
+          const shortData = `${currentRoundId}|${gameStr}|${bgChar}`
+          return btoa(shortData).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+        }
+
+        // Long format (full data)
         const data = {
           tournamentId: currentTournament.tour.id,
           roundId: currentRoundId,

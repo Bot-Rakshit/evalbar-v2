@@ -9,6 +9,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/broadcast/:stateData" element={<BroadcastPage />} />
+          <Route path="/b/:stateData" element={<BroadcastPage />} />
         </Routes>
       </div>
     </BrowserRouter>
